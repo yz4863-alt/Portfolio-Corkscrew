@@ -25,6 +25,8 @@ const BASE_ROOT_Y = -0.03;
 const IDLE_FLOAT_Y = 0.026;
 const IDLE_ROTATION_X = 0.026;
 const IDLE_ROTATION_Y = 0.038;
+const HERO_IDLE_FRAME_INTERVAL = 1000 / 48;
+const HERO_ACTIVE_WAKE_MS = 900;
 
 type CorkscrewReleasePort = {
   origin: THREE.Vector3;
@@ -537,9 +539,29 @@ export default function BrainHero() {
     let disposed = false;
     let width = 1;
     let height = 1;
+    let animationFrame: number | null = null;
+    let isHeroVisible = true;
+    let isDocumentVisible = document.visibilityState === "visible";
+    let lastRenderTime = performance.now();
+    let activeUntil = lastRenderTime + HERO_ACTIVE_WAKE_MS;
+
+    const shouldAnimate = () => !disposed && isHeroVisible && isDocumentVisible;
+
+    const scheduleAnimation = () => {
+      if (animationFrame === null && shouldAnimate()) {
+        animationFrame = requestAnimationFrame(animate);
+      }
+    };
+
+    const wakeAnimation = () => {
+      activeUntil = performance.now() + HERO_ACTIVE_WAKE_MS;
+      scheduleAnimation();
+    };
 
     controlsRef.current = {
       rotate: (axis, direction) => {
+        wakeAnimation();
+
         if (axis === "x") {
           targetRotationX = THREE.MathUtils.clamp(targetRotationX + direction * ROTATION_STEP, -0.88, 0.88);
           return;
@@ -548,6 +570,7 @@ export default function BrainHero() {
         targetRotationY += direction * ROTATION_STEP;
       },
       reset: () => {
+        wakeAnimation();
         targetRotationX = 0;
         targetRotationY = 0;
       },
@@ -773,6 +796,8 @@ export default function BrainHero() {
         releaseBatch = createMedicineParticleBatch(releaseParticles, mistTexture, implantScale);
         releaseBatch.mesh.renderOrder = 10;
         medicineGroup.add(releaseBatch.mesh);
+        mount.classList.add("is-webgl-ready");
+        wakeAnimation();
       });
     });
 
@@ -796,6 +821,7 @@ export default function BrainHero() {
       root.position.x = getBrainRightShift(width);
       renderer.setPixelRatio(dpr);
       renderer.setSize(width, height, false);
+      wakeAnimation();
     };
 
     const resizeObserver = new ResizeObserver(resize);
@@ -803,6 +829,10 @@ export default function BrainHero() {
     resize();
 
     const handlePointerMove = (event: PointerEvent) => {
+      if (!isHeroVisible) {
+        return;
+      }
+
       const now = performance.now();
       const elapsedPointer = Math.max(12, now - lastPointerTime);
       const dx = event.clientX - lastPointerX;
@@ -814,14 +844,48 @@ export default function BrainHero() {
       lastPointerX = event.clientX;
       lastPointerY = event.clientY;
       lastPointerTime = now;
+      activeUntil = now + HERO_ACTIVE_WAKE_MS;
+      scheduleAnimation();
     };
 
     window.addEventListener("pointermove", handlePointerMove, { passive: true });
 
     const clock = new THREE.Clock();
-    let animationFrame = 0;
+    const visibilityObserver = new IntersectionObserver(
+      ([entry]) => {
+        isHeroVisible = entry.isIntersecting;
+        if (isHeroVisible) {
+          clock.getDelta();
+          scheduleAnimation();
+        }
+      },
+      { rootMargin: "180px 0px" },
+    );
+    visibilityObserver.observe(mount);
 
-    const animate = () => {
+    const handleVisibilityChange = () => {
+      isDocumentVisible = document.visibilityState === "visible";
+      if (isDocumentVisible) {
+        clock.getDelta();
+        scheduleAnimation();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    function animate(frameTime: number) {
+      animationFrame = null;
+
+      if (!shouldAnimate()) {
+        return;
+      }
+
+      const isActive = frameTime < activeUntil;
+      if (!isActive && frameTime - lastRenderTime < HERO_IDLE_FRAME_INTERVAL) {
+        scheduleAnimation();
+        return;
+      }
+
+      lastRenderTime = frameTime;
       const delta = Math.min(clock.getDelta(), 0.04);
       const elapsed = clock.elapsedTime;
       targetFlowBoost = THREE.MathUtils.damp(targetFlowBoost, 0, 7.4, delta);
@@ -916,21 +980,26 @@ export default function BrainHero() {
       root.rotation.z = THREE.MathUtils.damp(root.rotation.z, Math.sin(elapsed * 0.52 + 1.7) * 0.012, 4.5, delta);
 
       renderer.render(scene, camera);
-      animationFrame = requestAnimationFrame(animate);
-    };
+      scheduleAnimation();
+    }
 
-    animate();
+    scheduleAnimation();
 
     return () => {
       disposed = true;
       controlsRef.current = null;
       window.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (joystickHoldRef.current !== null) {
         window.clearInterval(joystickHoldRef.current);
         joystickHoldRef.current = null;
       }
-      cancelAnimationFrame(animationFrame);
+      if (animationFrame !== null) {
+        cancelAnimationFrame(animationFrame);
+      }
+      visibilityObserver.disconnect();
       resizeObserver.disconnect();
+      mount.classList.remove("is-webgl-ready");
       renderer.dispose();
       const disposedMaterials = new Set<THREE.Material>();
       scene.traverse((object) => {

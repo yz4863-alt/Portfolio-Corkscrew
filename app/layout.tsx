@@ -31,6 +31,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
+      <head>
+        <link rel="preload" href="/hero-brain-catheter-3d.png" as="image" />
+        <link rel="preload" href="/brain-cad-modified.stl" as="fetch" crossOrigin="anonymous" />
+        <link rel="preload" href="/corkscrew.stl" as="fetch" crossOrigin="anonymous" />
+      </head>
       <body>{children}</body>
     </html>
   );

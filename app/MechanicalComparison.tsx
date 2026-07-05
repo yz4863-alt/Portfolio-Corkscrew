@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 
@@ -373,7 +373,7 @@ function setupMechanicalScene(mount: HTMLDivElement, kind: ModelKind) {
     alpha: true,
     antialias: true,
     powerPreference: "high-performance",
-    preserveDrawingBuffer: true,
+    preserveDrawingBuffer: false,
   });
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -400,12 +400,25 @@ function setupMechanicalScene(mount: HTMLDivElement, kind: ModelKind) {
   root.add(arrows);
 
   let disposed = false;
-  let animationFrame = 0;
+  let animationFrame: number | null = null;
+  let isPanelVisible = true;
+  let isDocumentVisible = document.visibilityState === "visible";
+  let lastRenderTime = performance.now();
+  const frameInterval = 1000 / 42;
   let height = 2.26;
   let radius = 0.5;
   let compressionGroup: THREE.Group | null = null;
   let deformState: DeformState | null = null;
   let conventionalTube: ConventionalTubeModel | null = null;
+  let lastConventionalLoad = -1;
+
+  const shouldAnimate = () => !disposed && isPanelVisible && isDocumentVisible;
+
+  const scheduleAnimation = () => {
+    if (animationFrame === null && shouldAnimate()) {
+      animationFrame = requestAnimationFrame(animate);
+    }
+  };
 
   loader.load(
     MODEL_PATHS[kind],
@@ -437,6 +450,7 @@ function setupMechanicalScene(mount: HTMLDivElement, kind: ModelKind) {
       const basePlate = makeBasePlate(baseWidth);
       basePlate.position.y = -height / 2 - 0.02;
       root.add(basePlate);
+      scheduleAnimation();
     },
     undefined,
     () => {
@@ -464,7 +478,40 @@ function setupMechanicalScene(mount: HTMLDivElement, kind: ModelKind) {
   resize();
 
   const clock = new THREE.Clock();
-  const animate = () => {
+  const visibilityObserver = new IntersectionObserver(
+    ([entry]) => {
+      isPanelVisible = entry.isIntersecting;
+      if (isPanelVisible) {
+        clock.getDelta();
+        scheduleAnimation();
+      }
+    },
+    { rootMargin: "160px 0px" },
+  );
+  visibilityObserver.observe(mount);
+
+  const handleVisibilityChange = () => {
+    isDocumentVisible = document.visibilityState === "visible";
+    if (isDocumentVisible) {
+      clock.getDelta();
+      scheduleAnimation();
+    }
+  };
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+
+  function animate(frameTime: number) {
+    animationFrame = null;
+
+    if (!shouldAnimate()) {
+      return;
+    }
+
+    if (frameTime - lastRenderTime < frameInterval) {
+      scheduleAnimation();
+      return;
+    }
+
+    lastRenderTime = frameTime;
     const elapsed = clock.getElapsedTime();
     const load = kind === "spiral" ? pulse(elapsed, 5.2) : rampAndHold(elapsed, 5.2);
 
@@ -478,30 +525,36 @@ function setupMechanicalScene(mount: HTMLDivElement, kind: ModelKind) {
         arrows.position.set(0.03 * compression, -height / 2 + height * (1 - visualShortening) + 0.58, 0);
         arrows.scale.setScalar(1 + compression * 0.08);
       } else {
-        const loading = easeInOut(Math.min(load / 0.78, 1));
-        const snap = smoothstep(0.8, 0.98, load);
+        const visualLoad = Math.round(load * 80) / 80;
+        const loading = easeInOut(Math.min(visualLoad / 0.78, 1));
+        const snap = smoothstep(0.8, 0.98, visualLoad);
         const topY = height * (1 - 0.12 * loading) + snap * snap * height * 0.07;
 
-        if (conventionalTube) {
-          updateConventionalTubeModel(conventionalTube, load, height, Math.max(0.024, Math.min(0.04, radius * 0.07)));
+        if (conventionalTube && visualLoad !== lastConventionalLoad) {
+          updateConventionalTubeModel(conventionalTube, visualLoad, height, Math.max(0.024, Math.min(0.04, radius * 0.07)));
+          lastConventionalLoad = visualLoad;
         }
 
         arrows.position.set(0, -height / 2 + topY + 0.58, 0);
-        arrows.scale.setScalar(1 + load * 0.07);
+        arrows.scale.setScalar(1 + visualLoad * 0.07);
       }
 
       root.rotation.y = Math.sin(elapsed * 0.26 + (kind === "spiral" ? 0.8 : -0.4)) * 0.08;
     }
 
     renderer.render(scene, camera);
-    animationFrame = requestAnimationFrame(animate);
-  };
+    scheduleAnimation();
+  }
 
-  animate();
+  scheduleAnimation();
 
   return () => {
     disposed = true;
-    cancelAnimationFrame(animationFrame);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    if (animationFrame !== null) {
+      cancelAnimationFrame(animationFrame);
+    }
+    visibilityObserver.disconnect();
     resizeObserver.disconnect();
     renderer.dispose();
     scene.traverse((object) => {
@@ -525,15 +578,36 @@ function setupMechanicalScene(mount: HTMLDivElement, kind: ModelKind) {
 
 function MechanicalPanel({ kind, title }: MechanicalPanelProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
+  const [isArmed, setIsArmed] = useState(false);
 
   useEffect(() => {
     const mount = mountRef.current;
-    if (!mount) {
+    if (!mount || isArmed) {
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsArmed(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "900px 0px" },
+    );
+    observer.observe(mount);
+
+    return () => observer.disconnect();
+  }, [isArmed]);
+
+  useEffect(() => {
+    const mount = mountRef.current;
+    if (!mount || !isArmed) {
       return undefined;
     }
 
     return setupMechanicalScene(mount, kind);
-  }, [kind]);
+  }, [isArmed, kind]);
 
   return (
     <article className="mechanical-panel">
