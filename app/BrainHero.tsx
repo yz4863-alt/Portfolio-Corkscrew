@@ -420,7 +420,7 @@ export default function BrainHero() {
   const joystickHoldRef = useRef<number | null>(null);
 
   const readControlDirection = (button: HTMLButtonElement) => {
-    const axis = button.dataset.axis === "x" ? "x" : "y";
+    const axis: "x" | "y" = button.dataset.axis === "x" ? "x" : "y";
     const direction = button.dataset.direction === "-1" ? -1 : 1;
     return { axis, direction };
   };
