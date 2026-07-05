@@ -2,6 +2,7 @@
 import BrainHero from "./BrainHero";
 import HeroStatCard from "./HeroStatCard";
 import MechanicalComparison from "./MechanicalComparison";
+import SectionNavigation from "./SectionNavigation";
 
 const overviewCards = [
   {
@@ -117,6 +118,7 @@ const mediaCoverageLinks = [
 export default function Home() {
   return (
     <main className="site-page">
+      <SectionNavigation />
       <div className="name-watermark name-watermark-left" aria-hidden="true">
         Yusheng (Jason) Zhang
       </div>

@@ -403,6 +403,7 @@ function setupMechanicalScene(mount: HTMLDivElement, kind: ModelKind) {
   let animationFrame: number | null = null;
   let isPanelVisible = true;
   let isDocumentVisible = document.visibilityState === "visible";
+  let isSectionJumping = document.documentElement.classList.contains("is-section-jumping");
   let lastRenderTime = performance.now();
   const frameInterval = 1000 / 42;
   let height = 2.26;
@@ -412,7 +413,14 @@ function setupMechanicalScene(mount: HTMLDivElement, kind: ModelKind) {
   let conventionalTube: ConventionalTubeModel | null = null;
   let lastConventionalLoad = -1;
 
-  const shouldAnimate = () => !disposed && isPanelVisible && isDocumentVisible;
+  const shouldAnimate = () => !disposed && isPanelVisible && isDocumentVisible && !isSectionJumping;
+
+  const cancelScheduledAnimation = () => {
+    if (animationFrame !== null) {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = null;
+    }
+  };
 
   const scheduleAnimation = () => {
     if (animationFrame === null && shouldAnimate()) {
@@ -499,6 +507,20 @@ function setupMechanicalScene(mount: HTMLDivElement, kind: ModelKind) {
   };
   document.addEventListener("visibilitychange", handleVisibilityChange);
 
+  const handleSectionJumpStart = () => {
+    isSectionJumping = true;
+    cancelScheduledAnimation();
+  };
+
+  const handleSectionJumpEnd = () => {
+    isSectionJumping = false;
+    clock.getDelta();
+    scheduleAnimation();
+  };
+
+  window.addEventListener("portfolio:section-jump-start", handleSectionJumpStart);
+  window.addEventListener("portfolio:section-jump-end", handleSectionJumpEnd);
+
   function animate(frameTime: number) {
     animationFrame = null;
 
@@ -551,9 +573,9 @@ function setupMechanicalScene(mount: HTMLDivElement, kind: ModelKind) {
   return () => {
     disposed = true;
     document.removeEventListener("visibilitychange", handleVisibilityChange);
-    if (animationFrame !== null) {
-      cancelAnimationFrame(animationFrame);
-    }
+    window.removeEventListener("portfolio:section-jump-start", handleSectionJumpStart);
+    window.removeEventListener("portfolio:section-jump-end", handleSectionJumpEnd);
+    cancelScheduledAnimation();
     visibilityObserver.disconnect();
     resizeObserver.disconnect();
     renderer.dispose();
@@ -586,18 +608,45 @@ function MechanicalPanel({ kind, title }: MechanicalPanelProps) {
       return undefined;
     }
 
+    const isNearViewport = () => {
+      const rect = mount.getBoundingClientRect();
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+
+      return rect.top < viewportHeight + 320 && rect.bottom > -320;
+    };
+
+    const armWhenIdle = () => {
+      if (document.documentElement.classList.contains("is-section-jumping")) {
+        return false;
+      }
+
+      setIsArmed(true);
+      return true;
+    };
+
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsArmed(true);
+        if (entry.isIntersecting && armWhenIdle()) {
           observer.disconnect();
         }
       },
-      { rootMargin: "900px 0px" },
+      { rootMargin: "320px 0px" },
     );
     observer.observe(mount);
 
-    return () => observer.disconnect();
+    const handleSectionJumpEnd = () => {
+      if (isNearViewport()) {
+        armWhenIdle();
+        observer.disconnect();
+      }
+    };
+
+    window.addEventListener("portfolio:section-jump-end", handleSectionJumpEnd);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("portfolio:section-jump-end", handleSectionJumpEnd);
+    };
   }, [isArmed]);
 
   useEffect(() => {

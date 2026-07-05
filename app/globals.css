@@ -17,7 +17,11 @@
 }
 
 html {
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
+}
+
+html.is-section-jumping {
+  scroll-behavior: auto;
 }
 
 body {

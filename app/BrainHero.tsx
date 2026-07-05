@@ -542,10 +542,18 @@ export default function BrainHero() {
     let animationFrame: number | null = null;
     let isHeroVisible = true;
     let isDocumentVisible = document.visibilityState === "visible";
+    let isSectionJumping = document.documentElement.classList.contains("is-section-jumping");
     let lastRenderTime = performance.now();
     let activeUntil = lastRenderTime + HERO_ACTIVE_WAKE_MS;
 
-    const shouldAnimate = () => !disposed && isHeroVisible && isDocumentVisible;
+    const shouldAnimate = () => !disposed && isHeroVisible && isDocumentVisible && !isSectionJumping;
+
+    const cancelScheduledAnimation = () => {
+      if (animationFrame !== null) {
+        window.cancelAnimationFrame(animationFrame);
+        animationFrame = null;
+      }
+    };
 
     const scheduleAnimation = () => {
       if (animationFrame === null && shouldAnimate()) {
@@ -872,6 +880,20 @@ export default function BrainHero() {
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
+    const handleSectionJumpStart = () => {
+      isSectionJumping = true;
+      cancelScheduledAnimation();
+    };
+
+    const handleSectionJumpEnd = () => {
+      isSectionJumping = false;
+      clock.getDelta();
+      scheduleAnimation();
+    };
+
+    window.addEventListener("portfolio:section-jump-start", handleSectionJumpStart);
+    window.addEventListener("portfolio:section-jump-end", handleSectionJumpEnd);
+
     function animate(frameTime: number) {
       animationFrame = null;
 
@@ -990,13 +1012,13 @@ export default function BrainHero() {
       controlsRef.current = null;
       window.removeEventListener("pointermove", handlePointerMove);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("portfolio:section-jump-start", handleSectionJumpStart);
+      window.removeEventListener("portfolio:section-jump-end", handleSectionJumpEnd);
       if (joystickHoldRef.current !== null) {
         window.clearInterval(joystickHoldRef.current);
         joystickHoldRef.current = null;
       }
-      if (animationFrame !== null) {
-        cancelAnimationFrame(animationFrame);
-      }
+      cancelScheduledAnimation();
       visibilityObserver.disconnect();
       resizeObserver.disconnect();
       mount.classList.remove("is-webgl-ready");
