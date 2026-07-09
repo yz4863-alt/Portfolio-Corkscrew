@@ -543,10 +543,12 @@ export default function BrainHero() {
     let isHeroVisible = true;
     let isDocumentVisible = document.visibilityState === "visible";
     let isSectionJumping = document.documentElement.classList.contains("is-section-jumping");
+    let isPageScrolling = false;
+    let scrollIdleTimer: number | null = null;
     let lastRenderTime = performance.now();
     let activeUntil = lastRenderTime + HERO_ACTIVE_WAKE_MS;
 
-    const shouldAnimate = () => !disposed && isHeroVisible && isDocumentVisible && !isSectionJumping;
+    const shouldAnimate = () => !disposed && isHeroVisible && isDocumentVisible && !isSectionJumping && !isPageScrolling;
 
     const cancelScheduledAnimation = () => {
       if (animationFrame !== null) {
@@ -880,6 +882,27 @@ export default function BrainHero() {
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
+    const handleScroll = () => {
+      if (isSectionJumping) {
+        return;
+      }
+
+      isPageScrolling = true;
+      cancelScheduledAnimation();
+
+      if (scrollIdleTimer !== null) {
+        window.clearTimeout(scrollIdleTimer);
+      }
+
+      scrollIdleTimer = window.setTimeout(() => {
+        scrollIdleTimer = null;
+        isPageScrolling = false;
+        clock.getDelta();
+        scheduleAnimation();
+      }, 120);
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+
     const handleSectionJumpStart = () => {
       isSectionJumping = true;
       cancelScheduledAnimation();
@@ -1012,8 +1035,12 @@ export default function BrainHero() {
       controlsRef.current = null;
       window.removeEventListener("pointermove", handlePointerMove);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("scroll", handleScroll);
       window.removeEventListener("portfolio:section-jump-start", handleSectionJumpStart);
       window.removeEventListener("portfolio:section-jump-end", handleSectionJumpEnd);
+      if (scrollIdleTimer !== null) {
+        window.clearTimeout(scrollIdleTimer);
+      }
       if (joystickHoldRef.current !== null) {
         window.clearInterval(joystickHoldRef.current);
         joystickHoldRef.current = null;

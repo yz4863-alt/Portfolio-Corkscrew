@@ -404,6 +404,8 @@ function setupMechanicalScene(mount: HTMLDivElement, kind: ModelKind) {
   let isPanelVisible = true;
   let isDocumentVisible = document.visibilityState === "visible";
   let isSectionJumping = document.documentElement.classList.contains("is-section-jumping");
+  let isPageScrolling = false;
+  let scrollIdleTimer: number | null = null;
   let lastRenderTime = performance.now();
   const frameInterval = 1000 / 42;
   let height = 2.26;
@@ -413,7 +415,7 @@ function setupMechanicalScene(mount: HTMLDivElement, kind: ModelKind) {
   let conventionalTube: ConventionalTubeModel | null = null;
   let lastConventionalLoad = -1;
 
-  const shouldAnimate = () => !disposed && isPanelVisible && isDocumentVisible && !isSectionJumping;
+  const shouldAnimate = () => !disposed && isPanelVisible && isDocumentVisible && !isSectionJumping && !isPageScrolling;
 
   const cancelScheduledAnimation = () => {
     if (animationFrame !== null) {
@@ -507,6 +509,27 @@ function setupMechanicalScene(mount: HTMLDivElement, kind: ModelKind) {
   };
   document.addEventListener("visibilitychange", handleVisibilityChange);
 
+  const handleScroll = () => {
+    if (isSectionJumping) {
+      return;
+    }
+
+    isPageScrolling = true;
+    cancelScheduledAnimation();
+
+    if (scrollIdleTimer !== null) {
+      window.clearTimeout(scrollIdleTimer);
+    }
+
+    scrollIdleTimer = window.setTimeout(() => {
+      scrollIdleTimer = null;
+      isPageScrolling = false;
+      clock.getDelta();
+      scheduleAnimation();
+    }, 120);
+  };
+  window.addEventListener("scroll", handleScroll, { passive: true });
+
   const handleSectionJumpStart = () => {
     isSectionJumping = true;
     cancelScheduledAnimation();
@@ -573,8 +596,12 @@ function setupMechanicalScene(mount: HTMLDivElement, kind: ModelKind) {
   return () => {
     disposed = true;
     document.removeEventListener("visibilitychange", handleVisibilityChange);
+    window.removeEventListener("scroll", handleScroll);
     window.removeEventListener("portfolio:section-jump-start", handleSectionJumpStart);
     window.removeEventListener("portfolio:section-jump-end", handleSectionJumpEnd);
+    if (scrollIdleTimer !== null) {
+      window.clearTimeout(scrollIdleTimer);
+    }
     cancelScheduledAnimation();
     visibilityObserver.disconnect();
     resizeObserver.disconnect();

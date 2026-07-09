@@ -219,6 +219,8 @@ export default function Home() {
               <img
                 src="/overview-conventional-catheter.png"
                 alt="Conventional straight intracerebral catheter in a translucent brain"
+                loading="lazy"
+                decoding="async"
               />
               <figcaption>Conventional Straight Catheter</figcaption>
             </figure>
@@ -226,6 +228,8 @@ export default function Home() {
               <img
                 src="/overview-spiral-catheter.png"
                 alt="SPIRAL helical intracerebral microfluidic catheter in a translucent brain"
+                loading="lazy"
+                decoding="async"
               />
               <figcaption>SPIRAL Helical Microfluidic Catheter</figcaption>
             </figure>
